@@ -1,11 +1,9 @@
 package jp.s5r;
 
 import android.app.Activity;
-import android.content.Context;
 import android.content.res.Configuration;
 import android.database.Cursor;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.provider.MediaStore;
@@ -13,99 +11,18 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.*;
 
-import java.lang.ref.SoftReference;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
 
 public class GalleryActivity extends Activity {
     private static final int NUM_COLUMN = 4;
 
-    private final SimpleDateFormat sdf = new SimpleDateFormat("yyyy'/'MM'/'dd");
-
-    private ArrayList<GalleryItem>    mItems = new ArrayList<GalleryItem>();
     private GristAdapter<GalleryItem> mAdapter;
 
     private int mImageSize;
 
-    class GalleryItem implements IGristItem {
-        private Context mContext;
-        private Long mMediaStoreId;
-        private String mBitmapPath;
-        private SoftReference<Bitmap> mBitmapReference;
-        private Date mTakenAt;
-        private int mType;
-
-        private static final int TYPE_CONTENT_PROVIDER = 0;
-        private static final int TYPE_FILE             = 1;
-
-        public GalleryItem(Context context, long mediaStoreId, String taken) {
-            mType         = TYPE_CONTENT_PROVIDER;
-            mContext      = context;
-            mMediaStoreId = mediaStoreId;
-            mTakenAt      = new Date(Long.valueOf(taken));
-        }
-
-        public GalleryItem(Context context, String path, String taken) {
-            mType       = TYPE_FILE;
-            mContext    = context;
-            mBitmapPath = path;
-            mTakenAt    = new Date(Long.valueOf(taken));
-        }
-
-        public Bitmap getBitmap() {
-            Bitmap bitmap = null;
-            if (mBitmapReference != null) {
-                bitmap = mBitmapReference.get();
-            }
-
-            if (bitmap == null) {
-                switch (mType) {
-                    case TYPE_CONTENT_PROVIDER:
-                        bitmap = getBitmapFromContentResolver();
-                        break;
-
-                    case TYPE_FILE:
-                        bitmap = getBitmapFromFile();
-                        break;
-                }
-
-                mBitmapReference = new SoftReference<Bitmap>(bitmap);
-            }
-
-            return bitmap;
-        }
-
-        private Bitmap getBitmapFromContentResolver() {
-            return MediaStore.Images.Thumbnails.getThumbnail(
-                    mContext.getContentResolver(),
-                    mMediaStoreId,
-                    MediaStore.Images.Thumbnails.MICRO_KIND,
-                    null
-            );
-        }
-
-        private Bitmap getBitmapFromFile() {
-            return BitmapFactory.decodeFile(mBitmapPath);
-        }
-
-        public Date getTakenAt() {
-            return mTakenAt;
-        }
-
-        @Override
-        public long getId() {
-            return 0;
-        }
-
-        @Override
-        public String getTitle() {
-            return sdf.format(getTakenAt());
-        }
-    }
-
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
+        // 回転時の onDestroy を抑制
         super.onConfigurationChanged(newConfig);
     }
 
@@ -124,7 +41,34 @@ public class GalleryActivity extends Activity {
         initData();
     }
 
-    class MyGalleryAdapter extends GristAdapter<GalleryItem> {
+    private void initData() {
+        // managedQuery では close を呼ばないこと
+        Cursor c = managedQuery(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                null, null, null,
+                String.format("%s DESC", MediaStore.Images.ImageColumns.DATE_TAKEN)
+        );
+
+        ArrayList<GalleryItem> items = new ArrayList<GalleryItem>();
+
+        c.moveToFirst();
+        do {
+            int idIndex = c.getColumnIndexOrThrow("_id");
+            int takenIndex = c.getColumnIndexOrThrow(MediaStore.Images.ImageColumns.DATE_TAKEN);
+
+            GalleryItem item = new GalleryItem(
+                    getApplicationContext(),
+                    c.getLong(idIndex),
+                    c.getString(takenIndex)
+            );
+
+            items.add(item);
+        } while (c.moveToNext());
+
+        mAdapter.buildItemsIndex(items);
+    }
+
+    private class MyGalleryAdapter extends GristAdapter<GalleryItem> {
         public MyGalleryAdapter(int numColumn) {
             super(numColumn);
         }
@@ -159,50 +103,26 @@ public class GalleryActivity extends Activity {
 
             return v;
         }
-    }
 
-    private void initData() {
-        // managedQuery では close を呼ばないこと
-        Cursor c = managedQuery(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                null, null, null,
-                String.format("%s DESC", MediaStore.Images.ImageColumns.DATE_TAKEN)
-        );
-        c.moveToFirst();
+        private class BitmapLoadTask extends AsyncTask<Void, Void, Bitmap> {
+            private ImageView imageView;
+            private GalleryItem item;
 
-        do {
-            long id = c.getLong(c.getColumnIndexOrThrow("_id"));
+            public BitmapLoadTask(ImageView imageView, GalleryItem item) {
+                this.imageView = imageView;
+                this.item = item;
+            }
 
-            String taken = c.getString(c.getColumnIndexOrThrow(MediaStore.Images.ImageColumns.DATE_TAKEN));
+            @Override
+            protected Bitmap doInBackground(Void... voids) {
+                return item.getBitmap();
+            }
 
-            GalleryItem item = new GalleryItem(getApplicationContext(), id, taken);
-
-            mItems.add(item);
-
-        } while (c.moveToNext());
-
-
-        mAdapter.buildItemsIndex(mItems);
-    }
-
-    class BitmapLoadTask extends AsyncTask<Void, Void, Bitmap> {
-        private ImageView imageView;
-        private GalleryItem item;
-
-        public BitmapLoadTask(ImageView imageView, GalleryItem item) {
-            this.imageView = imageView;
-            this.item = item;
-        }
-
-        @Override
-        protected Bitmap doInBackground(Void... voids) {
-            return item.getBitmap();
-        }
-
-        @Override
-        protected void onPostExecute(Bitmap bitmap) {
-            imageView.setImageBitmap(bitmap);
-            imageView.setOnClickListener(new OnItemClickListener(item));
+            @Override
+            protected void onPostExecute(Bitmap bitmap) {
+                imageView.setImageBitmap(bitmap);
+                imageView.setOnClickListener(new GalleryActivity.OnItemClickListener(item));
+            }
         }
     }
 

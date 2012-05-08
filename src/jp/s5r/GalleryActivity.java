@@ -4,14 +4,18 @@ import android.app.Activity;
 import android.content.res.Configuration;
 import android.database.Cursor;
 import android.graphics.Bitmap;
-import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Handler;
 import android.provider.MediaStore;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.*;
 
 import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class GalleryActivity extends Activity {
     private static final int NUM_COLUMN = 4;
@@ -69,8 +73,17 @@ public class GalleryActivity extends Activity {
     }
 
     private class MyGalleryAdapter extends GristAdapter<GalleryItem> {
+
+        private ScheduledExecutorService mScheduler = Executors.newSingleThreadScheduledExecutor();
+        private LinkedList<Holder> mWorkStack = new LinkedList<Holder>();
+        private Handler mHandler = new Handler();
+
         public MyGalleryAdapter(int numColumn) {
             super(numColumn);
+
+            mScheduler.scheduleAtFixedRate(
+                    new BitmapLoadThread(), 0, 100, TimeUnit.MILLISECONDS
+            );
         }
 
         @Override
@@ -99,29 +112,46 @@ public class GalleryActivity extends Activity {
             ImageView imageView = (ImageView) v.findViewById(R.id.gallery_item_image);
             imageView.setLayoutParams(new AbsListView.LayoutParams(mImageSize, mImageSize));
 
-            new BitmapLoadTask(imageView, item).execute();
+            mWorkStack.add(new Holder(imageView, item));
 
             return v;
         }
 
-        private class BitmapLoadTask extends AsyncTask<Void, Void, Bitmap> {
-            private ImageView imageView;
-            private GalleryItem item;
+        private class BitmapLoadThread implements Runnable {
+            @Override
+            public void run() {
+                while (true) {
+                    Holder holder;
+                    synchronized (GalleryActivity.this) {
+                        holder = mWorkStack.poll();
+                    }
 
-            public BitmapLoadTask(ImageView imageView, GalleryItem item) {
+                    if (holder == null) {
+                        break;
+                    }
+
+                    setImageAtUIThread(holder, holder.item.getBitmap());
+                }
+            }
+        }
+
+        private void setImageAtUIThread(final Holder holder, final Bitmap bitmap) {
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    holder.imageView.setImageBitmap(bitmap);
+                    holder.imageView.setOnClickListener(new GalleryActivity.OnItemClickListener(holder.item));
+                }
+            });
+        }
+
+        public class Holder {
+            ImageView imageView;
+            GalleryItem item;
+
+            public Holder(ImageView imageView, GalleryItem item) {
                 this.imageView = imageView;
                 this.item = item;
-            }
-
-            @Override
-            protected Bitmap doInBackground(Void... voids) {
-                return item.getBitmap();
-            }
-
-            @Override
-            protected void onPostExecute(Bitmap bitmap) {
-                imageView.setImageBitmap(bitmap);
-                imageView.setOnClickListener(new GalleryActivity.OnItemClickListener(item));
             }
         }
     }

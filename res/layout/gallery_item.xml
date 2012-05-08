@@ -3,6 +3,7 @@
     android:id="@+id/gallery_item_image"
     android:layout_height="wrap_content"
     android:layout_width="wrap_content"
+    android:scaleType="centerCrop"
     android:focusable="true"
     android:focusableInTouchMode="true" />
 

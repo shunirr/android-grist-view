@@ -1,7 +1,6 @@
 package jp.s5r;
 
 import android.app.Activity;
-import android.content.res.Configuration;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.os.Bundle;
@@ -23,12 +22,6 @@ public class GalleryActivity extends Activity {
     private GristAdapter<GalleryItem> mAdapter;
 
     private int mImageSize;
-
-    @Override
-    public void onConfigurationChanged(Configuration newConfig) {
-        // 回転時の onDestroy を抑制
-        super.onConfigurationChanged(newConfig);
-    }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -72,6 +65,11 @@ public class GalleryActivity extends Activity {
         mAdapter.buildItemsIndex(items);
     }
 
+    private void onItemClick(GalleryItem item) {
+        Toast.makeText(getApplicationContext(), item.getTakenAt().toLocaleString(), Toast.LENGTH_SHORT).show();
+    }
+
+
     private class MyGalleryAdapter extends GristAdapter<GalleryItem> {
 
         private ScheduledExecutorService mScheduler = Executors.newSingleThreadScheduledExecutor();
@@ -112,7 +110,14 @@ public class GalleryActivity extends Activity {
             ImageView imageView = (ImageView) v.findViewById(R.id.gallery_item_image);
             imageView.setLayoutParams(new AbsListView.LayoutParams(mImageSize, mImageSize));
 
-            mWorkStack.add(new Holder(imageView, item));
+            Bitmap bitmap = item.getBitmapCache();
+            if (bitmap != null) {
+                imageView.setImageBitmap(bitmap);
+                imageView.setOnClickListener(new OnItemClickListener(item));
+            } else {
+                // Load async
+                mWorkStack.add(new Holder(imageView, item));
+            }
 
             return v;
         }
@@ -140,7 +145,7 @@ public class GalleryActivity extends Activity {
                 @Override
                 public void run() {
                     holder.imageView.setImageBitmap(bitmap);
-                    holder.imageView.setOnClickListener(new GalleryActivity.OnItemClickListener(holder.item));
+                    holder.imageView.setOnClickListener(new OnItemClickListener(holder.item));
                 }
             });
         }
@@ -154,23 +159,19 @@ public class GalleryActivity extends Activity {
                 this.item = item;
             }
         }
-    }
 
-    class OnItemClickListener implements View.OnClickListener {
-        private GalleryItem item;
+        class OnItemClickListener implements View.OnClickListener {
+            private GalleryItem item;
 
-        public OnItemClickListener(GalleryItem item) {
-            this.item = item;
+            public OnItemClickListener(GalleryItem item) {
+                this.item = item;
+            }
+
+            @Override
+            public void onClick(View view) {
+                GalleryActivity.this.onItemClick(item);
+            }
         }
-
-        @Override
-        public void onClick(View view) {
-            onItemClick(item);
-        }
-    }
-
-    private void onItemClick(GalleryItem item) {
-        Toast.makeText(getApplicationContext(), item.getTakenAt().toLocaleString(), Toast.LENGTH_SHORT).show();
     }
 }
 

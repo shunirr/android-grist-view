@@ -36,6 +36,15 @@ public class GalleryItem implements IGristItem {
         mTakenAt    = new Date(Long.valueOf(taken));
     }
 
+    public Bitmap getBitmapCache() {
+        Bitmap bitmap = null;
+        if (mBitmapReference != null) {
+            bitmap = mBitmapReference.get();
+        }
+
+        return bitmap;
+    }
+
     public Bitmap getBitmap() {
         Bitmap bitmap = null;
         if (mBitmapReference != null) {

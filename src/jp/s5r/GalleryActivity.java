@@ -6,6 +6,7 @@ import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.os.Handler;
 import android.provider.MediaStore;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.*;
@@ -14,6 +15,7 @@ import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 public class GalleryActivity extends Activity {
@@ -42,9 +44,8 @@ public class GalleryActivity extends Activity {
         // managedQuery では close を呼ばないこと
         Cursor c = managedQuery(
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                null, null, null,
-                String.format("%s DESC", MediaStore.Images.ImageColumns.DATE_TAKEN)
-        );
+                null, null, null,MediaStore.Images.ImageColumns.DATE_TAKEN + " DESC")
+        ;
 
         ArrayList<GalleryItem> items = new ArrayList<GalleryItem>();
 
@@ -52,14 +53,19 @@ public class GalleryActivity extends Activity {
         do {
             int idIndex = c.getColumnIndexOrThrow("_id");
             int takenIndex = c.getColumnIndexOrThrow(MediaStore.Images.ImageColumns.DATE_TAKEN);
+            String taken = c.getString(takenIndex);
+            
+            if (taken != null) {
+	            GalleryItem item = new GalleryItem(
+	            		getApplicationContext(),
+	                    c.getLong(idIndex),
+	                    c.getString(takenIndex)
+	                   
+	            );
+	            items.add(item);
+            }
 
-            GalleryItem item = new GalleryItem(
-                    getApplicationContext(),
-                    c.getLong(idIndex),
-                    c.getString(takenIndex)
-            );
-
-            items.add(item);
+            
         } while (c.moveToNext());
 
         mAdapter.buildItemsIndex(items);
@@ -75,12 +81,14 @@ public class GalleryActivity extends Activity {
         private ScheduledExecutorService mScheduler = Executors.newSingleThreadScheduledExecutor();
         private LinkedList<Holder> mWorkStack = new LinkedList<Holder>();
         private Handler mHandler = new Handler();
+        private ScheduledFuture<?> msf;
+        private BitmapLoadThread mThread;
 
         public MyGalleryAdapter(int numColumn) {
             super(numColumn);
-
-            mScheduler.scheduleAtFixedRate(
-                    new BitmapLoadThread(), 0, 100, TimeUnit.MILLISECONDS
+            mThread =  new BitmapLoadThread();
+            msf =  mScheduler.scheduleAtFixedRate(
+                   mThread, 0, 100, TimeUnit.MILLISECONDS
             );
         }
 
@@ -117,14 +125,20 @@ public class GalleryActivity extends Activity {
             } else {
                 // Load async
                 mWorkStack.add(new Holder(imageView, item));
+                if (msf.isCancelled()) {
+                	msf =  mScheduler.scheduleAtFixedRate(
+                        mThread, 0, 100, TimeUnit.MILLISECONDS);
+                }
             }
 
             return v;
         }
 
         private class BitmapLoadThread implements Runnable {
+        	public  final String TAG = BitmapLoadThread.class.getName();
             @Override
             public void run() {
+            	Log.i(TAG,"BitmapLoadThread run");
                 while (true) {
                     Holder holder;
                     synchronized (GalleryActivity.this) {
@@ -132,6 +146,7 @@ public class GalleryActivity extends Activity {
                     }
 
                     if (holder == null) {
+                    	msf.cancel(true);
                         break;
                     }
 
